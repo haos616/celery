@@ -294,6 +294,7 @@ NAMESPACES = Namespace(
         timer=Option(type='string'),
         timer_precision=Option(1.0, type='float'),
     ),
+    disable_sync_subtasks=Option(True, type='bool')
 )
 
 

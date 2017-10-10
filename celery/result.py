@@ -39,8 +39,8 @@ See http://docs.celeryq.org/en/latest/userguide/tasks.html\
 """
 
 
-def assert_will_not_block():
-    if task_join_will_block():
+def assert_will_not_block(app):
+    if app.conf.disable_sync_subtasks and task_join_will_block():
         raise RuntimeError(E_WOULDBLOCK)
 
 
@@ -48,6 +48,16 @@ def assert_will_not_block():
 def allow_join_result():
     reset_value = task_join_will_block()
     _set_task_join_will_block(False)
+    try:
+        yield
+    finally:
+        _set_task_join_will_block(reset_value)
+
+
+@contextmanager
+def denied_join_result():
+    reset_value = task_join_will_block()
+    _set_task_join_will_block(True)
     try:
         yield
     finally:
@@ -170,7 +180,7 @@ class AsyncResult(ResultBase):
                 exception will be re-raised in the caller process.
         """
         if disable_sync_subtasks:
-            assert_will_not_block()
+            assert_will_not_block(app=self.app)
         _on_interval = promise()
         if follow_parents and propagate and self.parent:
             on_interval = promise(self._maybe_reraise_parent_error, weak=True)
@@ -678,7 +688,7 @@ class ResultSet(ResultBase):
                 :const:`None` and the operation takes longer than ``timeout``
                 seconds.
         """
-        assert_will_not_block()
+        assert_will_not_block(app=self.app)
         time_start = monotonic()
         remaining = None
 
@@ -737,7 +747,7 @@ class ResultSet(ResultBase):
         This is currently only supported by the amqp, Redis and cache
         result backends.
         """
-        assert_will_not_block()
+        assert_will_not_block(app=self.app)
         order_index = None if callback else {
             result.id: i for i, result in enumerate(self.results)
         }
@@ -919,7 +929,11 @@ class EagerResult(AsyncResult):
     def ready(self):
         return True
 
-    def get(self, timeout=None, propagate=True, **kwargs):
+    def get(self, timeout=None, propagate=True,
+            disable_sync_subtasks=True, **kwargs):
+        if disable_sync_subtasks:
+            assert_will_not_block(app=self.app)
+
         if self.successful():
             return self.result
         elif self.state in states.PROPAGATE_STATES:
